@@ -1,88 +1,87 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using System.Xml.Linq;
 using System.Xml.XPath;
 
 namespace SolutionAnalyzer
 {
-    public class ProjectNode
-    {
-        public string RootProject { get; set; }
-        public List<ProjectNode> ChildProjects { get; set; } = new List<ProjectNode>();
-    }
-
     class Program
     {
-        static Dictionary<string, ProjectNode> hash = new Dictionary<string, ProjectNode>();
 
 
         static void Main(string[] args)
         {
-            var fileName = @"c:\test\DocumentServices.sln";
-            var projectLinks = SolutionParser.ParseFile(fileName);
+            //var fileName = @"c:\Projects\Lingvo2\DocumentServices.sln";
+            var fileName = @"C:\temp\2\Solution1\Solution1.sln";
+            var tree=new SolutionTree();
+            tree.ParseFileName(fileName);
 
-            var di = new FileInfo(fileName);
+            //var n1=tree.HasNode(@"C:\Projects\Lingvo2\DocumentServices\NamedEntityDetector\NamedEntityDetector.csproj");
+            //var n2=tree.HasNode(@"C:\Projects\Lingvo2\DocumentServices\PositiveNegative\FactExtractor.csproj");
 
-            foreach (var item in projectLinks)
+            //tree.AddReference(
+            //    @"C:\Projects\Lingvo2\DocumentServices\NamedEntityDetector\NamedEntityDetector.csproj",
+            //    @"C:\Projects\Lingvo2\DocumentServices\PositiveNegative\FactExtractor.csproj");
+
+
+            var flatNodes=tree.FlatNodes();
+
+            bool hasCycle = false;
+            while (!hasCycle && flatNodes.Any())
             {
-                var projectFullPath = Path.Combine(di.DirectoryName, item);
-                Console.WriteLine(projectFullPath);
-
-                AddSelectedNode("solution", projectFullPath);
-
-                var projectFile = new FileInfo(projectFullPath);
-
-                var subProjectLinks = ProjectParser.ParseFile(projectFullPath);
-                foreach (var subProjectLink in subProjectLinks)
+                bool nodesWithoutReferences = false;
+                foreach (var node in flatNodes)
                 {
-                    var subprojectFullPath = Path.GetFullPath(Path.Combine(projectFile.DirectoryName, subProjectLink));
-                    AddSelectedNode(projectFullPath, subprojectFullPath);
-                    Console.WriteLine($"   {subprojectFullPath}");
+                    if (!node.Value.ParentProjects.Any())
+                    {
+                        nodesWithoutReferences = true;
+                        RemoveNode(node.Value);
+                        flatNodes.Remove(node.Key);
+                        break;
+                    }
+
+                    if (!node.Value.ChildProjects.Any())
+                    {
+                        nodesWithoutReferences = true;
+                        RemoveNode(node.Value);
+                        flatNodes.Remove(node.Key);
+                        break;
+                    }
                 }
 
+                if (!nodesWithoutReferences)
+                {
+                    hasCycle = true;
+                }
+            }
+
+            if (!flatNodes.Any())
+            {
+                Console.WriteLine("Циклы не обнаружены");
+            }
+
+            foreach (var projectNode in flatNodes)
+            {
+                Console.WriteLine(projectNode.Value.RootProject);
             }
 
             Console.ReadLine();
         }
 
-        private static void AddSelectedNode(string projectFullPath, string childFile)
+        private static void RemoveNode(ProjectNode nodeValue)
         {
-            var rootNode = GetdNode(projectFullPath);
-
-            var childNode = GetdNode(childFile);
-
-            rootNode.ChildProjects.Add(childNode);
-        }
-
-        private static ProjectNode GetdNode(string file)
-        {
-            if (!hash.ContainsKey(file))
+            foreach (var parent in nodeValue.ParentProjects)
             {
-                hash[file] = new ProjectNode()
-                {
-                    RootProject = file,
-                    ChildProjects = new List<ProjectNode>()
-                };
+                parent.ChildProjects.Remove(nodeValue);
             }
 
-            return hash[file];
-        }
-    }
-
-    public class ProjectParser
-    {
-        public static IEnumerable<string> ParseFile(string projectFullPath)
-        {
-            var xDocument = XDocument.Load(projectFullPath);
-            var subProjectReferences = xDocument.Descendants().Where(i => i.Name.LocalName == "ProjectReference");
-            var files = subProjectReferences.Select(n =>
-                  n.Attributes().Where(i => i.Name.LocalName == "Include").Select(i => i.Value).First());
-            return files;
+            foreach (var parent in nodeValue.ChildProjects)
+            {
+                parent.ParentProjects.Remove(parent);
+            }
         }
     }
 }
